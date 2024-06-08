@@ -19,20 +19,6 @@ object Consumer {
 
     import spark.implicits._
 
-    /*
-    val lines = ssc.socketTextStream("localhost", 9999)
-
-    val words = lines.flatMap(_.split(" "))
-    val pairs = words.map(word => (word, 1))
-    val wordCount = pairs.reduceByKey(_ + _)
-
-    wordCount.print()
-
-     */
-    // on va chercher un fichier csv qui rentre
-    // on compte le nombre de lignes du fichier
-    // on print le nombre de lignes
-
     val schema = StructType(Array(
       StructField("Code INSEE région", IntegerType, true),
       StructField("Région", StringType, true),
@@ -73,13 +59,104 @@ object Consumer {
       .format("csv")
       .load("data/*/*.csv")
 
-    val query = read_csv.groupBy(col("Date")).agg(count(col("Date")))
+    val lines_per_date = read_csv.groupBy(col("Date")).count()
       .writeStream
       .outputMode("complete")
       .format("console")
       .start()
 
-    query.awaitTermination()
+    val lines_per_date_per_region = read_csv.groupBy(col("Date"),col("Région")).count()
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val total_consommation = read_csv.agg(sum(col("Consommation (MW)")).alias("Consommation Totale (MW)"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val consommation_per_region = read_csv.groupBy(col("Région")).agg(sum(col("Consommation (MW)")).alias("Consommation par région (MW)"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val consommation_per_region_per_day = read_csv.groupBy(col("Région"),col("Date")).agg(sum(col("Consommation (MW)")).alias("Consommation par région (MW)"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val production_per_energy = read_csv.agg(
+        sum(col("Thermique (MW)")).alias("Total Thermique (MW)"),
+        sum(col("Nucléaire (MW)")).alias("Total Nucléaire (MW)"),
+        sum(col("Eolien (MW)")).alias("Total Eolien (MW)"),
+        sum(col("Solaire (MW)")).alias("Total Solaire (MW)"),
+        sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
+        sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
+        sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)")
+      )
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val production_per_energy_per_region = read_csv.groupBy(col("Région")).agg(
+        sum(col("Thermique (MW)")).alias("Total Thermique (MW)"),
+        sum(col("Nucléaire (MW)")).alias("Total Nucléaire (MW)"),
+        sum(col("Eolien (MW)")).alias("Total Eolien (MW)"),
+        sum(col("Solaire (MW)")).alias("Total Solaire (MW)"),
+        sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
+        sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
+        sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)")
+      )
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val production_per_energy_per_region_per_day = read_csv.groupBy(col("Région"),col("Date")).agg(
+        sum(col("Thermique (MW)")).alias("Total Thermique (MW)"),
+        sum(col("Nucléaire (MW)")).alias("Total Nucléaire (MW)"),
+        sum(col("Eolien (MW)")).alias("Total Eolien (MW)"),
+        sum(col("Solaire (MW)")).alias("Total Solaire (MW)"),
+        sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
+        sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
+        sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)")
+      )
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val consommation_moyenne_per_day = read_csv.groupBy(col("Date"))
+      .agg(avg(col("Consommation (MW)")).alias("Average Consommation (MW)"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val consommation_moyenne_per_day_per_region = read_csv.groupBy(col("Date"),col("Région"))
+      .agg(avg(col("Consommation (MW)")).alias("Average Consommation (MW)"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+
+
+    lines_per_date.awaitTermination()
+    lines_per_date_per_region.awaitTermination()
+    total_consommation.awaitTermination()
+    consommation_per_region.awaitTermination()
+    consommation_per_region_per_day.awaitTermination()
+    production_per_energy.awaitTermination()
+    production_per_energy_per_region.awaitTermination()
+    production_per_energy_per_region_per_day.awaitTermination()
+    consommation_moyenne_per_day.awaitTermination()
+    consommation_moyenne_per_day_per_region.awaitTermination()
   }
 }
 
