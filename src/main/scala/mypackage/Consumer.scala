@@ -66,15 +66,66 @@ object Consumer {
       .format("csv")
       .load("data/*/*.csv")
 
+    val group_by_day = read_csv.groupBy(col("Date"))
+      .agg(avg(col("Consommation (MW)")).alias("Average Consommation (MW)"),
+        count("*").alias("Number of lines per day"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
 
+    val group_by_day_region = read_csv.groupBy(col("Date"),col("Région"))
+      .agg(
+        count("*").alias("Number of lines per day per region"),
+        sum(col("Consommation (MW)")).alias("Consommation par région (MW)"),
+        avg(col("Consommation (MW)")).alias("Average Consommation (MW)"),
+        sum(col("Thermique (MW)")).alias("Total Thermique (MW)"),
+        sum(col("Nucléaire (MW)")).alias("Total Nucléaire (MW)"),
+        sum(col("Eolien (MW)")).alias("Total Eolien (MW)"),
+        sum(col("Solaire (MW)")).alias("Total Solaire (MW)"),
+        sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
+        sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
+        sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)")
+      )
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
 
-    val jdbcUrl = config.getString("db.jdbcUrl")
+    val total_consommation = read_csv.agg(
+        sum(col("Consommation (MW)")).alias("Consommation Totale (MW)"),
+        sum(col("Thermique (MW)")).alias("Total Thermique (MW)"),
+        sum(col("Nucléaire (MW)")).alias("Total Nucléaire (MW)"),
+        sum(col("Eolien (MW)")).alias("Total Eolien (MW)"),
+        sum(col("Solaire (MW)")).alias("Total Solaire (MW)"),
+        sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
+        sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
+        sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
+
+    val group_by_region = read_csv.groupBy(col("Région"))
+      .agg(
+        sum(col("Consommation (MW)")).alias("Consommation par région (MW)"),
+        sum(col("Thermique (MW)")).alias("Total Thermique (MW)"),
+        sum(col("Nucléaire (MW)")).alias("Total Nucléaire (MW)"),
+        sum(col("Eolien (MW)")).alias("Total Eolien (MW)"),
+        sum(col("Solaire (MW)")).alias("Total Solaire (MW)"),
+        sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
+        sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
+        sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)"))
+      .writeStream
+      .outputMode("complete")
+      .format("console")
+      .start()
 
     val connectionProperties = new Properties()
     connectionProperties.put("driver", "com.microsoft.sqlserver.jdbc.SQLServerDriver")
     val tableName = "RegionEnergyInformation"
 
-
+    val jdbcUrl = config.getString("db.jdbcUrl")
 
     val query = read_csv.writeStream.foreachBatch { (batchDF: org.apache.spark.sql.DataFrame, batchId: Long) =>
       batchDF.foreachPartition { partition: Iterator[org.apache.spark.sql.Row] =>
@@ -101,6 +152,11 @@ object Consumer {
     }.start()
 
     query.awaitTermination()
+
+    total_consommation.awaitTermination()
+    group_by_day.awaitTermination()
+    group_by_day_region.awaitTermination()
+    group_by_region.awaitTermination()
 
 //    val lines_per_date = read_csv.groupBy(col("Date")).count()
 //      .writeStream
