@@ -89,7 +89,7 @@ object Consumer {
         INSERT ([CodeINSEEregion],[Region],[Nature],[Date],[Heure],[DateHeure],[MWConsommation],[MWThermique],[MWNucleaire],[MWEolien],[MWSolaire],[MWHydraulique],[MWPompage],[MWBioenergies],[MWEchPhysique],[StockageBatterie],[DestockageBatterie],[TCO Thermique (%)],[TCH Thermique (%)],[TCO Nucleaire (%)],[TCH Nucléaire (%)],[TCO Eolien (%)],[TCH Eolien (%)],[TCO Solaire (%)],[TCH Solaire (%)],[TCO Hydraulique (%)],[TCH Hydraulique (%)],[TCO Bioenergies (%)],[TCH Bioenergies (%)])
         VALUES (source.[Code INSEE région], source.[Région], source.[Nature], source.[Date], source.[Heure], source.[Date - Heure], source.[Consommation (MW)], source.[Thermique (MW)], source.[Nucléaire (MW)], source.[Eolien (MW)], source.[Solaire (MW)], source.[Hydraulique (MW)], source.[Pompage (MW)], source.[Bioénergies (MW)], source.[Ech. physiques (MW)], source.[Stockage batterie], source.[Déstockage batterie], source.[TCO Thermique (%)], source.[TCH Thermique (%)], source.[TCO Nucléaire (%)], source.[TCH Nucléaire (%)], source.[TCO Eolien (%)], source.[TCH Eolien (%)], source.[TCO Solaire (%)], source.[TCH Solaire (%)], source.[TCO Hydraulique (%)], source.[TCH Hydraulique (%)], source.[TCO Bioénergies (%)], source.[TCH Bioénergies (%)]);
       """
-          val preparedStatement = 111
+          val preparedStatement = connection.prepareStatement(sql)
           connection.prepareStatement(sql)
           for (i <- 0 until row.length) {
             preparedStatement.setObject(i + 1, row.get(i))
