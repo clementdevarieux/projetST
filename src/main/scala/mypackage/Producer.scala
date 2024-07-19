@@ -23,13 +23,13 @@ object Producer {
 
     // val amount_per_day = logData.groupBy(col("Date")).count()
     println("number of lines in my df " + logData.count())
-    val number_of_partitions: Int = (logData.count()/10).toInt
+    val number_of_partitions: Int = (logData.count()/1000).toInt
     println("number of partitions =" + number_of_partitions)
 
     // println(number_of_partitions)
 
     for (i <- 0 to number_of_partitions) {
-      val to_write = logData.limit(10)
+      val to_write = logData.limit(1000)
       // Écrire le DataFrame actuel au format CSV
       println(s"writing to data/partition_${i}.csv")
       to_write.write

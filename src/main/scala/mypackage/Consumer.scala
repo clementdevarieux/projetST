@@ -71,9 +71,36 @@ object Consumer {
       .format("csv")
       .load("data/*/*.csv")
 
+
+    // todo rajouter la prédiction ici
     val group_by_day = read_csv.groupBy(col("Date"))
       .agg(avg(col("Consommation (MW)")).alias("Average Consommation (MW)"),
         count("*").alias("Number of lines per day"))
+      .writeStream.foreachBatch { (batchDF: org.apache.spark.sql.DataFrame, batchId: Long) =>
+        batchDF.foreachPartition { partition: Iterator[org.apache.spark.sql.Row] =>
+          val connection = DriverManager.getConnection(jdbcUrl, connectionProperties)
+          partition.foreach { row =>
+            val sql = s"""
+      MERGE INTO GroupByDay AS target
+      USING (VALUES (?, ?, ?))
+      AS source ([Date], [Average Consommation (MW)], [Number of lines per day])
+      ON target.[Date] = source.[Date]
+      WHEN MATCHED THEN
+        UPDATE SET target.[Average Consommation (MW)] = source.[Average Consommation (MW)], target.[Number of lines per day] = source.[Number of lines per day]
+      WHEN NOT MATCHED THEN
+        INSERT ([Date], [Average Consommation (MW)], [Number of lines per day])
+        VALUES (source.[Date], source.[Average Consommation (MW)], source.[Number of lines per day]);
+      """
+            val preparedStatement = connection.prepareStatement(sql)
+            connection.prepareStatement(sql)
+            for (i <- 0 until row.length) {
+              preparedStatement.setObject(i + 1, row.get(i))
+            }
+            preparedStatement.executeUpdate()
+          }
+          connection.close()
+        }
+      }.outputMode("complete").start()
 
     val group_by_day_region = read_csv.groupBy(col("Date"),col("Région"))
       .agg(
@@ -115,7 +142,6 @@ object Consumer {
       }.outputMode("complete").start()
 
 
-
     val total_consommation = read_csv.agg(
         sum(col("Consommation (MW)")).alias("Consommation Totale (MW)"),
         sum(col("Thermique (MW)")).alias("Total Thermique (MW)"),
@@ -125,10 +151,33 @@ object Consumer {
         sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
         sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
         sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)"))
-      .writeStream
-      .outputMode("complete")
-      .format("console")
-      .start()
+      .writeStream.foreachBatch { (batchDF: org.apache.spark.sql.DataFrame, batchId: Long) =>
+        batchDF.foreachPartition { partition: Iterator[org.apache.spark.sql.Row] =>
+          val connection = DriverManager.getConnection(jdbcUrl, connectionProperties)
+          try {
+            val deleteSQL = "DELETE FROM TotalConsommation"
+            val deleteStmt = connection.prepareStatement(deleteSQL)
+            deleteStmt.executeUpdate()
+            deleteStmt.close()
+
+            partition.foreach { row =>
+              val insertSQL =
+                """
+                INSERT INTO TotalConsommation ([Consommation Totale (MW)], [Total Thermique (MW)], [Total Nucléaire (MW)], [Total Eolien (MW)], [Total Solaire (MW)], [Total Hydraulique (MW)], [Total Pompage (MW)], [Total Bioénergies (MW)])
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """
+              val preparedStatement = connection.prepareStatement(insertSQL)
+              for (i <- 0 until row.length) {
+                preparedStatement.setObject(i + 1, row.get(i))
+              }
+              preparedStatement.executeUpdate()
+              preparedStatement.close()
+            }
+          } finally {
+            connection.close()
+          }
+        }
+      }.outputMode("complete").start()
 
     val group_by_region = read_csv.groupBy(col("Région"))
       .agg(
@@ -140,91 +189,42 @@ object Consumer {
         sum(col("Hydraulique (MW)")).alias("Total Hydraulique (MW)"),
         sum(col("Pompage (MW)")).alias("Total Pompage (MW)"),
         sum(col("Bioénergies (MW)")).alias("Total Bioénergies (MW)"))
-      .writeStream
-      .outputMode("complete")
-      .format("console")
-      .start()
-
-
-    val query_group_by_day = group_by_day.writeStream.foreachBatch { (batchDF: org.apache.spark.sql.DataFrame, batchId: Long) =>
-      batchDF.foreachPartition { partition: Iterator[org.apache.spark.sql.Row] =>
-        val connection = DriverManager.getConnection(jdbcUrl, connectionProperties)
-        partition.foreach { row =>
-          val sql = s"""
-      MERGE INTO GroupByDay AS target
-      USING (VALUES (?, ?, ?))
-      AS source ([Date], [Average Consommation (MW)], [Number of lines per day])
-      ON target.[Date] = source.[Date]
-      WHEN MATCHED THEN
-        UPDATE SET target.[Average Consommation (MW)] = source.[Average Consommation (MW)], target.[Number of lines per day] = source.[Number of lines per day]
-      WHEN NOT MATCHED THEN
-        INSERT ([Date], [Average Consommation (MW)], [Number of lines per day])
-        VALUES (source.[Date], source.[Average Consommation (MW)], source.[Number of lines per day]);
-      """
-          val preparedStatement = connection.prepareStatement(sql)
-          connection.prepareStatement(sql)
-          for (i <- 0 until row.length) {
-            preparedStatement.setObject(i + 1, row.get(i))
+      .writeStream.foreachBatch { (batchDF: org.apache.spark.sql.DataFrame, batchId: Long) =>
+        batchDF.foreachPartition { partition: Iterator[org.apache.spark.sql.Row] =>
+          val connection = DriverManager.getConnection(jdbcUrl, connectionProperties)
+          partition.foreach { row =>
+            val sql = s"""
+            MERGE INTO GroupByRegion AS target
+            USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?))
+            AS source ([Région], [Consommation par région (MW)], [Total Thermique (MW)], [Total Nucléaire (MW)], [Total Eolien (MW)], [Total Solaire (MW)], [Total Hydraulique (MW)], [Total Pompage (MW)], [Total Bioénergies (MW)])
+            ON target.[Region] = source.[Région]
+            WHEN MATCHED THEN
+            UPDATE SET
+                [Consommation par région (MW)] = source.[Consommation par région (MW)],
+                [Total Thermique (MW)] = source.[Total Thermique (MW)],
+                [Total Nucléaire (MW)] = source.[Total Nucléaire (MW)],
+                [Total Eolien (MW)] = source.[Total Eolien (MW)],
+                [Total Solaire (MW)] = source.[Total Solaire (MW)],
+                [Total Hydraulique (MW)] = source.[Total Hydraulique (MW)],
+                [Total Pompage (MW)] = source.[Total Pompage (MW)],
+                [Total Bioénergies (MW)] = source.[Total Bioénergies (MW)]
+            WHEN NOT MATCHED THEN
+              INSERT ([Region], [Consommation par région (MW)], [Total Thermique (MW)], [Total Nucléaire (MW)], [Total Eolien (MW)], [Total Solaire (MW)], [Total Hydraulique (MW)], [Total Pompage (MW)], [Total Bioénergies (MW)])
+              VALUES (source.[Région], source.[Consommation par région (MW)], source.[Total Thermique (MW)], source.[Total Nucléaire (MW)], source.[Total Eolien (MW)], source.[Total Solaire (MW)], source.[Total Hydraulique (MW)], source.[Total Pompage (MW)], source.[Total Bioénergies (MW)]);
+            """
+            val preparedStatement = connection.prepareStatement(sql)
+            connection.prepareStatement(sql)
+            for (i <- 0 until row.length) {
+              preparedStatement.setObject(i + 1, row.get(i))
+            }
+            preparedStatement.executeUpdate()
           }
-          preparedStatement.executeUpdate()
+          connection.close()
         }
-        connection.close()
-      }
-    }.outputMode("complete").start()
+      }.outputMode("complete").start()
 
-//    val query_group_by_day_region = group_by_day_region.writeStream.foreachBatch { (batchDF: org.apache.spark.sql.DataFrame, batchId: Long) =>
-//            batchDF.foreachPartition { partition: Iterator[org.apache.spark.sql.Row] =>
-//              val connection = DriverManager.getConnection(jdbcUrl, connectionProperties)
-//              partition.foreach { row =>
-//                val sql = s"""
-//            MERGE INTO GroupByDayRegion AS target
-//            USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?))
-//            AS source ([Date], [Région], [Number of lines per day per region], [Consommation par région (MW)], [Average Consommation (MW)], [Total Thermique (MW)], [Total Nucléaire (MW)], [Total Eolien (MW)], [Total Solaire (MW)], [Total Hydraulique (MW)], [Total Pompage (MW)], [Total Bioénergies (MW)])
-//            ON target.[Date] = source.[Date] AND target.[Region] = source.[Région]
-//            WHEN MATCHED THEN
-//              UPDATE SET target.[Number of lines per day per region] = source.[Number of lines per day per region], target.[Consommation par région (MW)] = source.[Consommation par région (MW)], target.[Average Consommation (MW)] = source.[Average Consommation (MW)], target.[Total Thermique (MW)] = source.[Total Thermique (MW)], target.[Total Nucléaire (MW)] = source.[Total Nucléaire (MW)], target.[Total Eolien (MW)] = source.[Total Eolien (MW)], target.[Total Solaire (MW)] = source.[Total Solaire (MW)], target.[Total Hydraulique (MW)] = source.[Total Hydraulique (MW)], target.[Total Pompage (MW)] = source.[Total Pompage (MW)], target.[Total Bioénergies (MW)] = source.[Total Bioénergies (MW)]
-//            WHEN NOT MATCHED THEN
-//              INSERT ([Date], [Region], [Number of lines per day per region], [Consommation par région (MW)], [Average Consommation (MW)], [Total Thermique (MW)], [Total Nucléaire (MW)], [Total Eolien (MW)], [Total Solaire (MW)], [Total Hydraulique (MW)], [Total Pompage (MW)], [Total Bioénergies (MW)])
-//              VALUES (source.[Date], source.[Région], source.[Number of lines per day per region], source.[Consommation par région (MW)], source.[Average Consommation (MW)], source.[Total Thermique (MW)], source.[Total Nucléaire (MW)], source.[Total Eolien (MW)], source.[Total Solaire (MW)], source.[Total Hydraulique (MW)], source.[Total Pompage (MW)], source.[Total Bioénergies (MW)]);
-//            """
-//                val preparedStatement = connection.prepareStatement(sql)
-//                connection.prepareStatement(sql)
-//                for (i <- 0 until row.length) {
-//                  preparedStatement.setObject(i + 1, row.get(i))
-//                }
-//                preparedStatement.executeUpdate()
-//              }
-//              connection.close()
-//            }
-//          }.outputMode("complete").format("console").start()
-
-//    val query_group_by_day = group_by_day.writeStream.foreachBatch { (batchDF: org.apache.spark.sql.DataFrame, batchId: Long) =>
-//      batchDF.foreachPartition { partition: Iterator[org.apache.spark.sql.Row] =>
-//        val connection = DriverManager.getConnection(jdbcUrl, connectionProperties)
-//        partition.foreach { row =>
-//          val sql = s"""
-//      MERGE INTO GroupByDay AS target
-//      USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?))
-//      AS source ([Code INSEE région], [Région], [Nature], [Date], [Heure], [Date - Heure], [Consommation (MW)], [Thermique (MW)], [Nucléaire (MW)], [Eolien (MW)], [Solaire (MW)], [Hydraulique (MW)], [Pompage (MW)], [Bioénergies (MW)], [Ech. physiques (MW)], [Stockage batterie], [Déstockage batterie], [TCO Thermique (%)], [TCH Thermique (%)], [TCO Nucléaire (%)], [TCH Nucléaire (%)], [TCO Eolien (%)], [TCH Eolien (%)], [TCO Solaire (%)], [TCH Solaire (%)], [TCO Hydraulique (%)], [TCH Hydraulique (%)], [TCO Bioénergies (%)], [TCH Bioénergies (%)])
-//      ON target.[CodeINSEEregion] = source.[Code INSEE région] AND target.[DateHeure] = source.[Date - Heure]
-//      WHEN NOT MATCHED THEN
-//        INSERT ([CodeINSEEregion],[Region],[Nature],[Date],[Heure],[DateHeure],[MWConsommation],[MWThermique],[MWNucleaire],[MWEolien],[MWSolaire],[MWHydraulique],[MWPompage],[MWBioenergies],[MWEchPhysique],[StockageBatterie],[DestockageBatterie],[TCO Thermique (%)],[TCH Thermique (%)],[TCO Nucleaire (%)],[TCH Nucléaire (%)],[TCO Eolien (%)],[TCH Eolien (%)],[TCO Solaire (%)],[TCH Solaire (%)],[TCO Hydraulique (%)],[TCH Hydraulique (%)],[TCO Bioenergies (%)],[TCH Bioenergies (%)])
-//        VALUES (source.[Code INSEE région], source.[Région], source.[Nature], source.[Date], source.[Heure], source.[Date - Heure], source.[Consommation (MW)], source.[Thermique (MW)], source.[Nucléaire (MW)], source.[Eolien (MW)], source.[Solaire (MW)], source.[Hydraulique (MW)], source.[Pompage (MW)], source.[Bioénergies (MW)], source.[Ech. physiques (MW)], source.[Stockage batterie], source.[Déstockage batterie], source.[TCO Thermique (%)], source.[TCH Thermique (%)], source.[TCO Nucléaire (%)], source.[TCH Nucléaire (%)], source.[TCO Eolien (%)], source.[TCH Eolien (%)], source.[TCO Solaire (%)], source.[TCH Solaire (%)], source.[TCO Hydraulique (%)], source.[TCH Hydraulique (%)], source.[TCO Bioénergies (%)], source.[TCH Bioénergies (%)]);
-//      """
-//          val preparedStatement = connection.prepareStatement(sql)
-//          connection.prepareStatement(sql)
-//          for (i <- 0 until row.length) {
-//            preparedStatement.setObject(i + 1, row.get(i))
-//          }
-//          preparedStatement.executeUpdate()
-//        }
-//        connection.close()
-//      }
-//    }.outputMode("complete").format("console").start()
-
-//    query.awaitTermination()
     total_consommation.awaitTermination()
-    query_group_by_day.awaitTermination()
+    group_by_day.awaitTermination()
     group_by_day_region.awaitTermination()
     group_by_region.awaitTermination()
   }
